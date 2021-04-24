@@ -1,3 +1,7 @@
+/* -------------------------------------------------------------------------------- */
+// Copyright (C) 2021. Nikola Vukićević
+/* -------------------------------------------------------------------------------- */
+
 var levi_t  = document.getElementById("levi");
 var desni_t = document.getElementById("desni");
 
