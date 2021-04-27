@@ -1,7 +1,7 @@
 # css_parser_wip
 Vrlo jednostavan CSS parser
 
-Možda se bacim i na neki pravi prevodilac, ali za sada je samo WIP ....
+Možda se bacim i na neki pravi CSS prevodilac, a do tada je sve ovo WIP ....
 
 ### Demo
 
