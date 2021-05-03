@@ -1,35 +1,56 @@
-/* -------------------------------------------------------------------------- */
-// Copyright (C) Nikola Vukićević 2021.
-/* -------------------------------------------------------------------------- */
-
-var levi_t  = document.getElementById("levi");
-var desni_t = document.getElementById("desni_ispis");
-
-
-/* STANJE - LEKSER:
-
-	0 - regularno
-	1 - zapocet komentar
-	2 - linijski komentar
-	3 - blok komentar
-	4 - zatvaranje blok komentara
-	5 - niska između navodnika
-	6 - niska između apostrofa
-*/
+var t_levi  = document.getElementById("levi");
+var t_desni = document.getElementById("desni_ispis");
 
 var stanje = {
 	s_znakovi   : "",
 	s_razmaci   : "",
 	sledeci     : "",
+	prethodni   : "",
 	poslednji   : "",
 	whitespace  : "",
 	niska       : "",
-	lekser      : 0,
 	br_redova   : 0,
+	stek_niska  : [],
 	stek_parser : []
 };
 
+/* stek_parser - stanja:
+
+[0, 0, 0] - osnovni
+[0, 0, 5] - unutrasnost et direktive
+
+[1, 0, 0] - komentar_otvaranje
+[1, 1, 0] - komentar_linijski_otvoren
+[1, 2, 0] - komentar_blok_otvoren
+[1, 3, 0] - komentar_blok_izlazak
+
+[2, 0, 0] - et_naredba
+[2, 1, 0] - import
+[2, 2, 0] - media
+[2, 3, 0] - font-face
+
+[3, 0, 0] - selektor_definicija
+[3, 1, 0] - selektor_klasa_otvaranje
+[3, 1, 5] - selektor_klasa_otvorena
+[3, 2, 0] - selektor_id_otvaranje
+[3, 2, 5] - selektor_id_otvorena
+[3, 3, 0] - selektor_prepoznati_otvaranje
+[3, 3, 5] - selektor_prepoznati_otvoren
+
+[4, 1, 0] - selektor_svojstvo_naziv
+[4, 2, 0] - selektor_svojstvo_vrednost
+
+[5, 1, 0] - niska_navodnici
+[5, 2, 0] - niska_apostrofi
+
+[6, 1, 0] - otvorena_mala_zagrada
+[6, 2, 0] - otvorena_uglasta_zagrada
+
+//*/
+
 var MAPA_SIMBOLA = new Map ([
+	/* ------ html selektori ----- */
+
 	["a",          "selektor_html_tag"],
 	["article",    "selektor_html_tag"],
 	["aside",      "selektor_html_tag"],
@@ -66,227 +87,207 @@ var MAPA_SIMBOLA = new Map ([
 	["textarea",   "selektor_html_tag"],
 	["u",          "selektor_html_tag"],
 	["ul",         "selektor_html_tag"],
-	
-	["active",  "pseudoklasa"],
-	["after",   "pseudoklasa"],
-	["before",  "pseudoklasa"],
-	["hover",   "pseudoklasa"],
-	["root",    "pseudoklasa"],
-	["visited", "pseudoklasa"],
-]);
 
-Obrada();
-levi_t.focus();
+	/* ----- @ direktive ----- */
+
+	["import",     "et_direktiva"],
+	["media",      "et_direktiva"],
+	["font-face",  "et_direktiva"],
+	
+	/* ----- pseudoklase ----- */
+	
+	["active",     "pseudoklasa"],
+	["after",      "pseudoklasa"],
+	["before",     "pseudoklasa"],
+	["hover",      "pseudoklasa"],
+	["root",       "pseudoklasa"],
+	["visited",    "pseudoklasa"],
+	["first",      "pseudoklasa"],
+	["child",      "pseudoklasa"]
+]);
 
 function StanjeReset() {
 	stanje.s_znakovi   = "";
 	stanje.s_razmaci   = "";
 	stanje.sledeci     = "";
+	stanje.prethodni   = "";
 	stanje.poslednji   = "";
 	stanje.whitespace  = "";
 	stanje.niska       = "";
 	stanje.lekser      = 0;
 	stanje.br_redova   = 0;
+	stanje.stek_niska  = [];
 	stanje.stek_parser = [];
 }
 
 function Obrada() {
-	
-	if(levi_t.value.length > 10000) {
-		alert("Unos prevelike količine teksta može znatno usporiti browser!");
-	}
-
+	/* ----- telemetrija ------ */
 	let t1 = performance.now();
-	StanjeReset();
-	let tokeni    = [];
-	let s         = "";
-	desni_t.value = "";
 
-	Tokenizacija(stanje, levi_t.value, tokeni);
-	Parser(stanje, tokeni);
-	s = PripremaHTMLa(tokeni);
+	
+	StanjeReset();
+	stanje.stek_parser.push([0, 0, 0]);
+	t_desni.innerHTML = "";
+	let tokeni = Tokenizacija(stanje, t_levi.value + "\n");
+	tokeni = Parser(stanje, tokeni)
+	t_desni.innerHTML = PripremaHTMLa(tokeni);
+	//alert(stanje.stek_parser);
 	PrebrojavanjeRedova();
 
-	desni_t.innerHTML = s;
+
+	/* ----- telemetrija ------ */
 	let t2    = performance.now();
 	let odziv = (t2 - t1) + "ms";
 	document.getElementById("info_aside_tokeni").innerHTML = tokeni.length;
 	document.getElementById("info_aside_odziv").innerHTML  = odziv;
 }
 
-function Parser(stanje, tokeni) {
+function Tokenizacija(stanje, s) {
+	let t = [];
+
+	let wsp  = [' ', '\t', '\n', '\r'];
+	let spec = [".", ",", "@", "#", "'", "\"", "(", ")", "[", "]", "{", "}", "/", ">", "+", "-", ":", ";", "=", "*"];
 	
-	let t1    = performance.now();
-	let i;
-
-	for (i = 0; i < tokeni.length; i++) {
+	for(let i = 0; i < s.length; i++) {
 		
-		if(tokeni[i][0] == "whitespace" || tokeni[i][0] == "komentar") {
+		//console.log(s[i]);
+
+		if(s[i] == '\n') {
+			if(stanje.whitespace != "") {
+				t.push(stanje.whitespace);
+				stanje.whitespace = "";
+			}
+
+			if(stanje.niska != "") {
+				t.push(stanje.niska);
+				stanje.niska = "";
+			}
+
+			t.push(s[i]);
+			stanje.br_redova++;
+
 			continue;
 		}
 
-		if(stanje.sledeci != "" && tokeni[i][0] == "token") {
-			tokeni[i][0] = stanje.sledeci;
+		if(wsp.includes(s[i])) {
+			if(stanje.niska != "") {
+				t.push(stanje.niska);
+				stanje.niska = "";
+			}
+
+			stanje.whitespace += s[i];
+
 			continue;
 		}
 
-		// Ili ova dva, ili da pisem pravi parser :)
-		///*
+		if(spec.includes(s[i])) {
+			if(stanje.whitespace != "") {
+				t.push(stanje.whitespace);
+				stanje.whitespace = "";
+			}
 
-		if(stanje.sledeci == "atribut_vrednost" && tokeni[i][0] == "id_punktuacija") {
-			tokeni[i][0] = stanje.sledeci;
+			if(stanje.niska != "") {
+				t.push(stanje.niska);
+				stanje.niska = "";
+			}
+
+			t.push(s[i]);
+			continue;
 		}
 
-		if(stanje.sledeci == "atribut_vrednost" && tokeni[i][0] == "klasa_punktuacija") {
-			tokeni[i][0] = stanje.sledeci;
-		}
+		if(stanje.whitespace != "") {
+				t.push(stanje.whitespace);
+				stanje.whitespace = "";
+			}
 
-		//*/
-						
-		switch(tokeni[i][0]) {
-			case "et_direktiva_punktuacija":     stanje.sledeci = "et_direktiva";     break;
-			case "et_direktiva":                 stanje.sledeci = "et_direktiva";     break;
-			case "selektor_zagrada_otvorena":    stanje.sledeci = "atribut_naziv";    break;
-			case "zagrada_otvorena":             stanje.sledeci = "atribut_vrednost"; break;
-			case "zagrada_zatvorena":            stanje.sledeci = "atribut_vrednost"; break;
-			case "zagrada_uglasta_otvorena":     stanje.sledeci = "atribut_vrednost"; break;
-			case "zagrada_uglasta_zatvorena":    stanje.sledeci = "atribut_vrednost"; break;
-			case "atribut_punktuacija":          stanje.sledeci = "atribut_vrednost"; break;
-			case "atribut_vrednost":             stanje.sledeci = "atribut_vrednost"; break;
-			case "atribut_vrednost_punktuacija": stanje.sledeci = "atribut_naziv";    break;
-			case "navodnik_pocetni":             stanje.sledeci = "niska";            break;
-			case "apostrof_pocetni":             stanje.sledeci = "niska";            break;
-			case "id_punktuacija":               stanje.sledeci = "id_naziv";         break;
-			case "klasa_punktuacija":            stanje.sledeci = "klasa_naziv";      break;
-			default: stanje.sledeci = ""; break;
-		}
+		stanje.niska += s[i];
 	}
 
-	PretragaTabeleSimbola(stanje, tokeni);
+	//console.log(t);
+	return t;
+}
 
+function Parser(stanje, tokeni) {
+	/* ----- telemetrija ------ */
+	let t1 = performance.now();
+
+
+	let t_novi = [];
+
+	for(let i = 0; i < tokeni.length; i++) {
+		//console.log(stanje.stek_parser);
+		if(tokeni[i] == "") continue;
+
+		if(tokeni[i].startsWith(" ") || tokeni[i].startsWith("\t")) {
+			
+			ObradaTokenaWhitespace(stanje, tokeni[i], t_novi);
+			continue;
+		}
+
+		if(tokeni[i].startsWith("\n")) {
+			
+			ObradaTokenaEnter(stanje, tokeni[i], t_novi);
+			continue;
+		}
+
+		RazvrstavanjeTokena(stanje, tokeni[i], t_novi);
+	}
+
+
+	/* ----- telemetrija ------ */
 	let t2    = performance.now();
 	let odziv = (t2 - t1) + "ms";
 	document.getElementById("info_aside_odziv_parser").innerHTML  = odziv;
+
+
+	return t_novi;
 }
 
-function PretragaTabeleSimbola(stanje, tokeni) {
-	let i;
-
-	for (i = 0; i < tokeni.length; i++) {
-		if(tokeni[i][0]  == "token") {
-			let p = MAPA_SIMBOLA.get(tokeni[i][1]);
-			
-			if(p) {
-				tokeni[i][0] = p;
-			}
-		}
-
-		if(tokeni[i][0]  == "token" && tokeni[i + 1][0] == "selektori_razdvajanje") {
-			tokeni[i][0] = "atribut_vrednost";
-		}
-
-		if(tokeni[i][0]  == "token" && tokeni[i + 1][0] == "atribut_vrednost_punktuacija") {
-			tokeni[i][0] = "atribut_vrednost";
-		}
-
-		if(tokeni[i][0] == "token" && tokeni[i + 1][0] == "klasa_punktuacija" && tokeni[i + 2][0] == "klasa_naziv") {
-			tokeni[i][0]     = "atribut_vrednost";
-			tokeni[i + 1][0] = "atribut_vrednost";
-			tokeni[i + 2][0] = "atribut_vrednost";
-			continue;
-		}
-
-		if(tokeni[i][0] == "atribut_vrednost" && tokeni[i - 1][0] == "atribut_punktuacija") {
-			let p = MAPA_SIMBOLA.get(tokeni[i][1]);
-			if(p) {
-				tokeni[i][0] = p;
-			}
-		}
-	}
-}
-
-function Tokenizacija(stanje, s, tokeni) {
-
-	let t1 = performance.now();
-
-	for (i = 0; i < s.length; i++) {
-
-		switch(s[i]) {
-
-			case '*':  ObradaZnakZvezdica(s[i], tokeni, stanje);                break;
-			case '/':  ObradaZnakKosaCrta(s[i], tokeni, stanje);                break;
-			case '@':  ObradaZnakManki(s[i], tokeni, stanje);                   break;
-			case '.':  ObradaZnakTacka(s[i], tokeni, stanje);                   break;
-			case ',':  ObradaZnakZarez(s[i], tokeni, stanje);                   break;
-			case '>':  ObradaZnakVece(s[i], tokeni, stanje);                    break;
-			case '+':  ObradaZnakPlus(s[i], tokeni, stanje);                    break;
-			case '#':  ObradaZnakTaraba(s[i], tokeni, stanje);                  break;
-			case ':':  ObradaZnakDveTacke(s[i], tokeni, stanje);                break;
-			case ';':  ObradaZnakTackaZarez(s[i], tokeni, stanje);              break;
-			case '(':  ObradaZnakOtvorenaZagrada(s[i], tokeni, stanje);         break;
-			case ')':  ObradaZnakZatvorenaZagrada(s[i], tokeni, stanje);        break;
-			case '[':  ObradaZnakOtvorenaUglastaZagrada(s[i], tokeni, stanje);  break;
-			case ']':  ObradaZnakZatvorenaUglastaZagrada(s[i], tokeni, stanje); break;
-			case '{':  ObradaZnakOtvorenaViticasta(s[i], tokeni, stanje);       break;
-			case '}':  ObradaZnakZatvorenaViticasta(s[i], tokeni, stanje);      break;
-			case '=':  ObradaZnakJednako(s[i], tokeni, stanje);                 break;
-			case '\"': ObradaZnakNavodnik(s[i], tokeni, stanje);                break;
-			case '\'': ObradaZnakApostrof(s[i], tokeni, stanje);                break;
-			case ' ':  ObradaZnakRazmak(s[i], tokeni, stanje);                  break;
-			case '\t': ObradaZnakTab(s[i], tokeni, stanje);                     break;
-			case '\n': ObradaZnakEnter(s[i], tokeni, stanje);                   break;
-			default:   ObradaZnakOstali(s[i], tokeni, stanje);                  break;
-		}
+function RazvrstavanjeTokena(stanje, t, tokeni) {
+	
+	switch(t) {
+		
+		case ".":  ObradaTokenaTacka(stanje, t, tokeni);                     break;
+		case ",":  ObradaTokenaZarez(stanje, t, tokeni);                     break;
+		case "@":  ObradaTokenaZnakEt(stanje, t, tokeni);                    break;
+		case "#":  ObradaTokenaTaraba(stanje, t, tokeni);                    break;
+		case "'":  ObradaTokenaApostrof(stanje, t, tokeni);                  break;
+		case "\"": ObradaTokenaNavodnik(stanje, t, tokeni);                  break;
+		case "(":  ObradaTokenaOtvorenaZagrada(stanje, t, tokeni);           break;
+		case ")":  ObradaTokenaZatvorenaZagrada(stanje, t, tokeni);          break;
+		case "[":  ObradaTokenaOtvorenaUglastaZagrada(stanje, t, tokeni);    break;
+		case "]":  ObradaTokenaZatvorenaUglastaZagrada(stanje, t, tokeni);   break;
+		case "{":  ObradaTokenaOtvorenaViticastaZagrada(stanje, t, tokeni);  break;
+		case "}":  ObradaTokenaZatvorenaViticastaZagrada(stanje, t, tokeni); break;
+		case "/":  ObradaTokenaKosaCrta(stanje, t, tokeni);                  break;
+		case "\\": ObradaTokenaObrnutaKosaCrta(stanje, t, tokeni);           break;
+		case ">":  ObradaTokenaZnakVece(stanje, t, tokeni);                  break;
+		case "+":  ObradaTokenaZnakPlus(stanje, t, tokeni);                  break;
+		case "-":  ObradaTokenaZnakMinus(stanje, t, tokeni);                 break;
+		case ":":  ObradaTokenaDveTacke(stanje, t, tokeni);                  break;
+		case ";":  ObradaTokenaTackaZarez(stanje, t, tokeni);                break;
+		case "=":  ObradaTokenaJednako(stanje, t, tokeni);                   break;
+		case "*":  ObradaTokenaZvezdica(stanje, t, tokeni);                  break;
+		
+		default:   ObradaTokenaObican(stanje, t, tokeni);                    break;
 	}
 
-	if(stanje.lekser == 3) {
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("komentar", stanje.niska));
-			stanje.niska = "";
-		}
-	}
-
-	if(stanje.lekser == 5 || stanje.lekser == 6) {
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("niska", stanje.niska));
-			stanje.niska = "";
-		}
-	}
-
-	let t2    = performance.now();
-	let odziv = (t2 - t1) + "ms";
-	document.getElementById("info_aside_odziv_lekser").innerHTML  = odziv;
 }
 
 function PripremaHTMLa(tokeni) {
-	let s = "";
-	let i;
-
-	for(i = 0; i < tokeni.length; i++) {
-		if(tokeni[i][0] == "novi_red") {
-			s += `<br><span class='token_${tokeni[i][0]}' title='' onmouseenter='IspisKlase(\"${tokeni[i][0]}\")' onmouseleave='IspisKlase(\"---\")'>${tokeni[i][1]}</span>`;
-		}
-		else {
-			s += `<span class='token_${tokeni[i][0]}' title='' onmouseenter='IspisKlase(\"${tokeni[i][0]}\")' onmouseleave='IspisKlase(\"---\")'>${tokeni[i][1]}</span>`;
-		}
+	let s  = "";
+	
+	for(let i = 0; i < tokeni.length; i++) {
+		//s += "<span class='token_" + tokeni[i][0] +"'>" + tokeni[i][1] + "</span>";
+		s += `<span class='token_${tokeni[i][0]}' title='' onmouseenter='IspisKlase(\"${tokeni[i][0]}\")' onmouseleave='IspisKlase(\"---\")'>${tokeni[i][1]}</span>`;
 	}
 
 	return s;
 }
 
 function PrebrojavanjeRedova() {
-	stanje.br_redova++;
-	let desni_num = document.getElementById("desni_numeracija");
+	//stanje.br_redova++;
+	let desni_num = document.getElementById("desni_gutter");
 	desni_num.innerHTML = "";
 
 	for (i = 1; i <= stanje.br_redova; i++) {
@@ -294,451 +295,751 @@ function PrebrojavanjeRedova() {
 	}
 }
 
-function ObradaZnakZvezdica(znak, tokeni, stanje) {
-	if(stanje.lekser == 1) {
-		stanje.lekser = 3;
-		stanje.niska += znak;
-		return;	
-	}
-
-	if(stanje.lekser == 3) {
-		stanje.lekser = 4;
-		stanje.niska += znak;
-		return;
-	}
-
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "globalni");
-
-}
-
-function ObradaZnakKosaCrta(znak, tokeni, stanje) {
-	
-	if(stanje.lekser == 0) {
-		
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		stanje.lekser = 1;
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 1) {
-		stanje.lekser = 2;
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 3 || stanje.lekser == 5 || stanje.lekser == 6) {
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 4) {
-		stanje.lekser = 0;
-
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("komentar", stanje.niska + znak));
-			stanje.niska = "";
-		}
-	}
-}
-
-function ObradaZnakManki(znak, tokeni, stanje) {
-	
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "et_direktiva_punktuacija");
-}
-
-function ObradaZnakOtvorenaZagrada(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "zagrada_otvorena");
-}
-
-function ObradaZnakZatvorenaZagrada(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "zagrada_zatvorena");
-}
-
-function ObradaZnakOtvorenaUglastaZagrada(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "zagrada_uglasta_otvorena");
-}
-
-function ObradaZnakZatvorenaUglastaZagrada(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "zagrada_uglasta_zatvorena");
-}
-
-function ObradaZnakTacka(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "klasa_punktuacija");
-}
-
-function ObradaZnakZarez(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "selektori_razdvajanje");
-}
-
-function ObradaZnakVece(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "selektori_potomak_veza");
-}
-
-function ObradaZnakPlus(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "selektori_povezani_veza");
-}
-
-function ObradaZnakTaraba(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "id_punktuacija");
-}
-
-function ObradaZnakDveTacke(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "atribut_punktuacija");
-}
-
-function ObradaZnakTackaZarez(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "atribut_vrednost_punktuacija");
-}
-
-function ObradaZnakOtvorenaViticasta(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "selektor_zagrada_otvorena");
-}
-
-function ObradaZnakZatvorenaViticasta(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "selektor_zagrada_zatvorena");
-}
-
-function ObradaZnakJednako(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	UpisSpecijalnogZnaka(znak, tokeni, stanje, "naredba_dodele");
-}
-
-function ObradaZnakNavodnik(znak, tokeni, stanje) {
-	
-	if(stanje.lekser == 0) {
-		stanje.lekser = 5;
-		
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		tokeni.push(new Array("navodnik_pocetni", znak));
-
-		return;
-	}
-
-	if(stanje.lekser == 1) {
-		stanje.lekser = 0;
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 4) {
-		stanje.lekser = 3;
-	}
-
-	if(stanje.lekser == 5) {
-		stanje.lekser = 0;
-
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		tokeni.push(new Array("navodnik_zavrsni", znak));
-
-		return;
-	}
-
-	if(stanje.lekser == 2 || stanje.lekser == 3 || stanje.lekser == 6) {
-
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 0) {
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("niska", stanje.niska + znak));
-			stanje.niska = "";
-		}
-
-		return;
-	}
-}
-
-function ObradaZnakApostrof(znak, tokeni, stanje) {
-	
-	if(stanje.lekser == 0) {
-		stanje.lekser = 6;
-
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		tokeni.push(new Array("apostrof_pocetni", znak));
-		
-		return;
-	}
-
-	if(stanje.lekser == 1) {
-		stanje.lekser = 0;
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 4) {
-		stanje.lekser = 3;
-	}
-
-	if(stanje.lekser == 6) {
-		stanje.lekser = 0;
-
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		tokeni.push(new Array("apostrof_zavrsni", znak));
-
-		return;
-	}
-
-	if(stanje.lekser == 2 || stanje.lekser == 3 || stanje.lekser == 5) {
-
-		stanje.niska += znak;
-		return;
-	}
-
-	if(stanje.lekser == 0) {
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("niska", stanje.niska + znak));
-			stanje.niska = "";
-		}
-
-		return;
-	}
-}
-
-function ObradaZnakRazmak(znak, tokeni, stanje) {
-	
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	
-	if(stanje.lekser == 0) {
-		
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		stanje.whitespace += znak;
-
-		return;
-	}
-}
-
-function ObradaZnakTab(znak, tokeni, stanje) {
-	
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	
-	if(stanje.lekser == 0) {
-		
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		stanje.whitespace += znak;
-
-		return;
-	}
-}
-
-function ObradaZnakEnter(znak, tokeni, stanje) {
-	
-	stanje.br_redova++;
-
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	
-	if(stanje.lekser == 2) {
-		stanje.lekser = 0;
-		stanje.niska += znak;
-
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("komentar", stanje.niska));
-			stanje.niska = "";
-		}
-
-		return;
-	}
-
-	UpisUKomentarIliNisku(znak, stanje);
-	
-	if(stanje.lekser == 0) {
-		
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		stanje.whitespace += znak;
-
-		return;
-	}
-}
-
-function ObradaZnakOstali(znak, tokeni, stanje) {
-	OtkazivanjeKomentara(stanje);
-	PovratakNaKomentar(stanje);
-	UpisUKomentarIliNisku(znak, stanje);
-	
-	if(stanje.lekser == 0) {
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		stanje.niska += znak;
-
-		return;
-	}
-}
-
-function OtkazivanjeKomentara(stanje) {
-	if(stanje.lekser == 1) {
-		stanje.lekser = 0;
-	}
-}
-
-function PovratakNaKomentar(stanja) {
-	if(stanje.lekser == 4) {
-		stanje.lekser = 3;
-	}
-}
-
-function UpisUKomentarIliNisku(znak, stanje) {
-	if(stanje.lekser == 2 || stanje.lekser == 3 ||
-	   stanje.lekser == 5 || stanje.lekser == 6) {
-
-		stanje.niska += znak;
-		return;
-	}
-}
-
-function UpisSpecijalnogZnaka(znak, tokeni, stanje, nazivTokena) {
-	if(stanje.lekser == 0) {
-		if(stanje.whitespace != "") {
-			tokeni.push(new Array("whitespace", stanje.whitespace));
-			stanje.whitespace = "";
-		}
-
-		if(stanje.niska != "") {
-			tokeni.push(new Array("token", stanje.niska));
-			stanje.niska = "";
-		}
-
-		tokeni.push(new Array(nazivTokena, znak));
-
-		return;
-	}
-}
-
 function IspisKlase(klasa) {
 	document.getElementById("info_aside_klasa").innerHTML = klasa;
 }
 
+/* -------------------------------------------------------------------------- */
+// POMOCNE FUNKCIJE ZA OBRADU TOKENA:
+/* -------------------------------------------------------------------------- */
+
+function UpisUNisku(kontekst, stanje, t, tokeni) {
+	
+	if(kontekst[0] == 5) {
+		tokeni.push(new Array("niska", t));
+		return true;
+	}
+
+	return false;
+}
+
+function UpisUKomentar(kontekst, stanje, t, tokeni) {
+
+	if(kontekst[0] != 1) return false;
+
+	if(kontekst[1] == 1 || kontekst[1] == 2) {
+		
+		tokeni.push(new Array("komentar", t));
+		return true;
+	}
+	
+	if(kontekst[1] == 3) {
+
+		tokeni.push(new Array("komentar", stanje.stek_niska.pop() + t));
+		stanje.stek_parser.pop();
+		return true;
+	}
+	
+	return false;
+}
+
+function ObradaKomentar(kontekst, stanje, t, tokeni) {
+
+	if(kontekst[0] != 1) return false;
+
+	if(t == "/") {
+		
+		if(ObradaKomentarZnakKosaCrta(kontekst, stanje, t, tokeni)) return true;
+	}
+
+	if(t == "*") {
+		
+		if(ObradaKomentarZnakZvezdica(kontekst, stanje, t, tokeni)) return true;
+		
+	}
+
+	// Ne mora da se proverava uslov, jer ENTER zavrsi ovde samo
+	// preko uslova u funkciji za obradu ENTERa
+
+	if(t.startsWith("\n")) {
+		ObradaKomentarZnakEnter(kontekst, stanje, t, tokeni);
+		return true;
+	}
+
+	if(kontekst[1] == 3) {
+		tokeni.push(new Array("komentar", stanje.stek_niska.pop()));
+		return true;
+	}
+
+	tokeni.push(new Array("greska", stanje.stek_niska.pop()));
+	stanje.stek_parser.pop();
+	
+	return true;
+}
+
+/* -------------------------------------------------------------------------- */
+// FUNKCIJE ZA OBRADU POJEDINAČNIH TOKENA:
+/* -------------------------------------------------------------------------- */
+
+function ObradaKomentarZnakKosaCrta(kontekst, stanje, t, tokeni) {
+
+	if( kontekst[1] == 0) {
+		tokeni.push(new Array("komentar_linijski_otvaranje", stanje.stek_niska.pop() + t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([1, 1, 0]);
+		return true;
+	}
+
+	if(kontekst[1] == 3) {
+		tokeni.push(new Array("komentar_blok_zatvaranje", stanje.stek_niska.pop() + t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.pop();
+		return true;
+	}
+
+	return false;
+}
+
+function ObradaKomentarZnakZvezdica(kontekst, stanje, t, tokeni) {
+
+	if(kontekst[1] == 0) {
+		tokeni.push(new Array("komentar_blok_otvaranje", stanje.stek_niska.pop() + t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([1, 2, 0]);
+		return true;
+	}
+	
+	if(kontekst[1] == 2) {
+		stanje.stek_niska.push(t);
+		stanje.stek_parser.push([1, 3, 0]);
+		return true;
+	}
+
+	if(kontekst[1] == 3) {
+		tokeni.push(new Array("komentar", stanje.stek_niska.pop()));
+		stanje.stek_niska.push(t);
+		return true;
+	}
+
+	return false;
+}
+
+function ObradaKomentarZnakEnter(kontekst, stanje, t, tokeni) {
+	
+	tokeni.push(new Array("whitespace", t));
+	stanje.stek_parser.pop();
+}
+
+function ObradaTokenaKosaCrta(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni)) return;	
+	
+	if(kontekst[0] != 1) {
+		stanje.stek_niska.push(t);
+		stanje.stek_parser.push([1, 0, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 1) {
+		if(kontekst[1] == 1 || kontekst[1] == 2) {
+			tokeni.push(new Array("komentar", t));
+			return;
+		}
+		else { // inace je 5
+			ObradaKomentar(kontekst, stanje, t, tokeni);
+			return;
+		}
+	}
+
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaZvezdica(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni)) return;	
+	
+	/* ----- Upis u linijski ----- */
+
+	if(kontekst[0] == 1 && (kontekst[1] == 1)) {
+		tokeni.push(new Array("komentar", t));
+		return;
+	}
+	
+	/* ----- Kreiranje globalnog selektora ----- */
+
+	if(kontekst[0] == 0) {
+		tokeni.push(new Array("globalni", t));
+		stanje.stek_parser.push([3, 3, 5]);
+		return;
+	}
+
+	if(kontekst[0] == 1) {
+		ObradaKomentar(kontekst, stanje, t, tokeni);
+		return;
+	}
+
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaTacka(stanje, t, tokeni) {
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	if(kontekst[0] == 0) {
+		tokeni.push(new Array("klasa_punktuacija", t));
+		stanje.stek_parser.push([3, 1, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 3) {
+		tokeni.push(new Array("klasa_punktuacija", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([3, 1, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 4 && kontekst[1] == 2) {
+		tokeni.push(new Array("svojstvo_vrednost", t));
+		return;
+	}
+
+	if(kontekst[0] == 6) {
+		tokeni.push(new Array("vrednost_u_zagradi", t));
+		return;
+	}
+	
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaZarez(stanje, t, tokeni) {
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+	
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	if(kontekst[0] == 3) {
+		tokeni.push(new Array("selektori_razdvajanje", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([3, 0, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 4 && kontekst[1] == 2) {
+		tokeni.push(new Array("svojstvo_vrednost", t));
+		return;
+	}
+
+	if(kontekst[0] == 6) {
+		tokeni.push(new Array("vrednost_u_zagradi", t));
+		return;
+	}
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaZnakEt(stanje, t, tokeni) {
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+	
+	if(kontekst[0] == 0) {
+		tokeni.push(new Array("et_direktiva_punktuacija", t));
+		stanje.stek_parser.push([2, 0, 0]);
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaTaraba(stanje, t, tokeni) {
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+	
+	if(kontekst[0] == 0) {
+		tokeni.push(new Array("id_punktuacija", t));
+		stanje.stek_parser.push([3, 2, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 3) {
+		tokeni.push(new Array("id_punktuacija", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([3, 2, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 4 && kontekst[1] == 2) {
+		tokeni.push(new Array("svojstvo_vrednost", t));
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaApostrof(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+	
+	if(kontekst[0] != 5) {
+		tokeni.push(new Array("apostrof_pocetni", t));
+		stanje.stek_parser.push([5, 2, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 5 && kontekst[1] == 2) {
+		stanje.stek_parser.pop();
+		tokeni.push(new Array("apostrof_zavrsni", t));
+		return;
+	}
+
+	if(kontekst[0] == 5 && kontekst[1] == 1) {
+		tokeni.push(new Array("niska", t));
+		return;
+	}
+
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaNavodnik(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	if(kontekst[0] != 5) {
+		tokeni.push(new Array("navodnik_pocetni", t));
+		stanje.stek_parser.push([5, 1, 0]);
+		return;
+	}
+
+	if(kontekst[0] == 5 && kontekst[1] == 1) {
+		stanje.stek_parser.pop();
+		tokeni.push(new Array("navodnik_zavrsni", t));
+		return;
+	}
+
+	if(kontekst[0] == 5 && kontekst[1] == 2) {
+		tokeni.push(new Array("niska", t));
+		return;
+	}
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	
+	return;
+}
+
+function ObradaTokenaOtvorenaZagrada(stanje, t, tokeni) {
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("zagrada_otvorena", t));
+	stanje.stek_parser.push([6, 1, 0]);
+	
+	return;
+}
+
+function ObradaTokenaZatvorenaZagrada(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("zagrada_zatvorena", t));
+	stanje.stek_parser.pop();
+	
+	return;
+}
+
+function ObradaTokenaOtvorenaUglastaZagrada(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("zagrada_uglasta_otvorena", t));
+	stanje.stek_parser.push([6, 2, 0]);
+	
+	return;
+}
+
+function ObradaTokenaZatvorenaUglastaZagrada(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("token", t));
+	stanje.stek_parser.pop();
+	
+	return;
+}
+
+function ObradaTokenaOtvorenaViticastaZagrada(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(kontekst[0] == 3 || (kontekst[0] == 2 && kontekst[1] != 2)) {
+		tokeni.push(new Array("selektor_punktuacija_otvaranje", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([4, 1, 0]);
+		return;
+	}
+
+	// DISKUTABILNO?!?!
+
+	if(kontekst[0] == 2) {
+		tokeni.push(new Array("selektor_punktuacija_otvaranje_et", t));
+		stanje.stek_parser.push([0, 0, 5]);
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));	
+	
+	return;
+}
+
+function ObradaTokenaZatvorenaViticastaZagrada(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(kontekst[0] == 4) {
+		tokeni.push(new Array("selektor_punktuacija_zatvaranje", t));
+		stanje.stek_parser.pop();
+		return;
+	}
+
+	// DISKUTABILNO?!?!
+
+	/*if(kontekst[0] == 2) {
+		tokeni.push(new Array("selektor_punktuacija_zatvaranje_et", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.pop();
+		// Zašto ne radi bez ovog drugog pop-a?
+		return;
+	}*/
+
+	if(kontekst[0] == 0 && kontekst[2] == 5) {
+		tokeni.push(new Array("selektor_punktuacija_zatvaranje_et", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.pop();
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));	
+	
+	return;
+}
+
+function ObradaTokenaObrnutaKosaCrta(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("token", t));	
+	
+	return;
+}
+
+function ObradaTokenaZnakVece(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("selektor_potomak_veza", t));	
+	
+	return;
+}
+
+function ObradaTokenaZnakPlus(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;	
+	
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("token", t));	
+	
+	return;
+}
+
+function ObradaTokenaZnakMinus(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+	
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("token", t));	
+	
+	return;
+}
+
+function ObradaTokenaDveTacke(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(kontekst[0] == 4) {
+		if(kontekst[1]  == 1) {
+			tokeni.push(new Array("svojstvo_punktuacija", t));
+			stanje.stek_parser.pop();
+			stanje.stek_parser.push([4, 2, 0]);
+			return;
+		}
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("atribut_punktuacija", t));	
+	
+	return;
+}
+
+function ObradaTokenaTackaZarez(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(kontekst[0] == 4) {
+		if(kontekst[1]  == 2) {
+			tokeni.push(new Array("svojstvo_vrednost_punktuacija", t));
+			stanje.stek_parser.pop();
+			stanje.stek_parser.push([4, 1, 0]);
+			return;
+		}
+	}
+
+	if(kontekst[0] == 2 && kontekst[1] == 1) {
+		tokeni.push(new Array("et_naredba_punktuacija_zavrsni", t));
+		stanje.stek_parser.pop();
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("token", t));	
+	
+	return;
+}
+
+function ObradaTokenaJednako(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("token", t));
+	
+	return;
+}
+
+function ObradaTokenaWhitespace(stanje, t, tokeni) {
+
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	if(kontekst[0] == 1) {
+		ObradaKomentar(kontekst, stanje, t, tokeni);
+		return;
+	}
+	
+	tokeni.push(new Array("whitespace", t));
+	
+	return;
+}
+
+function ObradaTokenaEnter(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	if(kontekst[0] == 1 && kontekst[1] == 1) {
+		ObradaKomentar(kontekst, stanje, t, tokeni);
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni)) return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	tokeni.push(new Array("whitespace", t));
+	
+	return;
+}
+
+function ObradaTokenaObican(stanje, t, tokeni) {
+	
+	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
+
+	/* ----- Klasa naziv ----- */
+	
+	if(kontekst[0] == 3 && kontekst[1] == 1 && kontekst[2] == 0) {
+		ObradaTokenObicanKlasa(kontekst, stanje, t, tokeni);
+		return;
+	}
+
+	/* ----- Id naziv ----- */
+	
+	if(kontekst[0] == 3 && kontekst[1] == 2 && kontekst[2] == 0) {
+		ObradaTokenObicanId(kontekst, stanje, t, tokeni);
+		return;
+	}
+
+	/* ----- HTML selektori ----- */
+	
+	if(kontekst[0] == 0 || kontekst[0] == 3) {
+		if(ObradaTokenObicanHTMLSelektor(kontekst, stanje, t, tokeni)) return;
+	}
+
+	/* ----- Svojstva selektora ----- */
+
+	if(kontekst[0] == 4) {
+		if(ObradaTokenObicanSvojstvaSelektora(kontekst, stanje, t, tokeni)) return;
+	}
+
+	/* ----- @ direktive ----- */
+
+	if(kontekst[0] == 2) {
+		if(ObradaTokenObicanEtDirektiva(kontekst, stanje, t, tokeni)) return;
+	}
+
+	/* ------ Tokeni unutar zagrada ----- */
+
+	if(kontekst[0] == 6) {
+		ObradaTokenObicanUnutarZagrada(kontekst, stanje, t, tokeni);
+		return;
+	}
+
+	if(UpisUNisku(kontekst, stanje, t, tokeni))    return;	
+	if(UpisUKomentar(kontekst, stanje, t, tokeni)) return;
+
+	ObradaKomentar(kontekst, stanje, t, tokeni);
+	tokeni.push(new Array("greska", t));
+	return;
+}
+
+function ObradaTokenObicanKlasa(kontekst, stanje, t, tokeni) {
+	tokeni.push(new Array("klasa_naziv", t));
+	stanje.stek_parser.pop();
+	stanje.stek_parser.push([3, 1, 5]);
+}
+
+function ObradaTokenObicanId(kontekst, stanje, t, tokeni) {
+	tokeni.push(new Array("id_naziv", t));
+	stanje.stek_parser.pop();
+	stanje.stek_parser.push([3, 2, 5]);
+}
+
+function ObradaTokenObicanHTMLSelektor(kontekst, stanje, t, tokeni) {
+	let p = MAPA_SIMBOLA.get(t);
+
+	if(p) {
+		tokeni.push(new Array(p, t));
+		if(kontekst[0] == 3) stanje.stek_parser.pop();
+		stanje.stek_parser.push([3, 3, 5]);
+		return true;
+	}
+
+	return false;
+}
+
+function ObradaTokenObicanSvojstvaSelektora(kontekst, stanje, t, tokeni) {
+	if(kontekst[1] == 1) {
+		tokeni.push(new Array("svojstvo_naziv", t));
+		return true;
+	}
+
+	if(kontekst[1] == 2) {
+		tokeni.push(new Array("svojstvo_vrednost", t));
+		return true;
+	}
+
+	return false;
+}
+
+function ObradaTokenObicanEtDirektiva(kontekst, stanje, t, tokeni) {
+	if(t == "import") {
+		tokeni.push(new Array("et_direktiva", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([2, 1, 0]);
+		return true;
+	}
+
+	if(t == "media") {
+		tokeni.push(new Array("et_direktiva", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([2, 2, 0]);
+		return true;
+	}
+
+	if(t == "font") {
+		tokeni.push(new Array("et_direktiva", t));
+		stanje.stek_parser.pop();
+		stanje.stek_parser.push([2, 3, 0]);
+		return true;
+	}
+
+	/*
+		Ovo već nema veze sa pravim parsiranjem, ali,
+		neka ostane za sada ....
+	*/
+
+	if(kontekst[1] > 0) {
+		tokeni.push(new Array("et_direktiva", t));
+		return true;
+	}
+}
+function ObradaTokenObicanUnutarZagrada(kontekst, stanje, t, tokeni) {
+	tokeni.push(new Array("vrednost_u_zagradi", t));
+}
