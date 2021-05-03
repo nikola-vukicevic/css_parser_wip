@@ -1,7 +1,7 @@
 # css_syntax_highlighter_wip
 Vrlo jednostavan highlighter za CSS sintaksu
 
-### Demo
+## Demo
 
 https://www.codeblog.rs/primeri/css_syntax_highlighter/
 
