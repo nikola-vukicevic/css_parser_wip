@@ -1,5 +1,5 @@
 # css_syntax_highlighter_wip
-Vrlo jednostavan highlighter za CSS sintaksu
+Jednostavan highlighter za CSS sintaksu
 
 ## Demo
 
