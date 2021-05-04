@@ -1,7 +1,9 @@
 var t_levi  = document.getElementById("levi");
 var t_desni = document.getElementById("desni_ispis");
+var PREPOZNAVANJE_SVOJSTAVA_NAZIV    = true;
+var PREPOZNAVANJE_SVOJSTAVA_VREDNOST = true;
 
-var stanje = {
+var STANJE = {
 	s_znakovi   : "",
 	s_razmaci   : "",
 	sledeci     : "",
@@ -9,6 +11,7 @@ var stanje = {
 	poslednji   : "",
 	whitespace  : "",
 	niska       : "",
+	svojstvo    : "",
 	br_redova   : 0,
 	stek_niska  : [],
 	stek_parser : []
@@ -48,7 +51,8 @@ var stanje = {
 
 //*/
 
-var MAPA_SIMBOLA = new Map ([
+var MAPA_SELEKTORA = new Map ([
+	
 	/* ------ html selektori ----- */
 
 	["a",          "selektor_html_tag"],
@@ -104,20 +108,36 @@ var MAPA_SIMBOLA = new Map ([
 	["visited",    "pseudoklasa"],
 	["first",      "pseudoklasa"],
 	["child",      "pseudoklasa"]
+
+]);
+
+var MAPA_VREDNOSTI = new Map([
+
+	["box-shadow",      ["temp",   []]],
+	["color",           ["temp",   []]],
+	["display",         ["spisak", ["block", "inline-block", "block", "flex"]]],
+	["font-family",     ["temp",   []]],
+	["margin",          ["temp",   []]],
+	["outline",         ["temp",   []]],
+	["padding",         ["temp",   []]],
+	["src",             ["temp",   []]],
+	["text-decoration", ["temp",   ["none", "underline"]]],
+
 ]);
 
 function StanjeReset() {
-	stanje.s_znakovi   = "";
-	stanje.s_razmaci   = "";
-	stanje.sledeci     = "";
-	stanje.prethodni   = "";
-	stanje.poslednji   = "";
-	stanje.whitespace  = "";
-	stanje.niska       = "";
-	stanje.lekser      = 0;
-	stanje.br_redova   = 0;
-	stanje.stek_niska  = [];
-	stanje.stek_parser = [];
+	STANJE.s_znakovi   = "";
+	STANJE.s_razmaci   = "";
+	STANJE.sledeci     = "";
+	STANJE.prethodni   = "";
+	STANJE.poslednji   = "";
+	STANJE.whitespace  = "";
+	STANJE.niska       = "";
+	STANJE.svojstvo    = "";
+	STANJE.lekser      = 0;
+	STANJE.br_redova   = 0;
+	STANJE.stek_niska  = [];
+	STANJE.stek_parser = [];
 }
 
 function Obrada() {
@@ -126,10 +146,10 @@ function Obrada() {
 
 	
 	StanjeReset();
-	stanje.stek_parser.push([0, 0, 0]);
+	STANJE.stek_parser.push([0, 0, 0]);
 	t_desni.innerHTML = "";
-	let tokeni = Tokenizacija(stanje, t_levi.value + "\n");
-	tokeni = Parser(stanje, tokeni)
+	let tokeni = Tokenizacija(STANJE, t_levi.value + "\n");
+	tokeni = Parser(STANJE, tokeni)
 	t_desni.innerHTML = PripremaHTMLa(tokeni);
 	//alert(stanje.stek_parser);
 	PrebrojavanjeRedova();
@@ -146,7 +166,11 @@ function Tokenizacija(stanje, s) {
 	let t = [];
 
 	let wsp  = [' ', '\t', '\n', '\r'];
-	let spec = [".", ",", "@", "#", "'", "\"", "(", ")", "[", "]", "{", "}", "/", ">", "+", "-", ":", ";", "=", "*"];
+	let spec = [".", ",", "@", "#", "'",
+	            "\"", "(", ")", "[", "]",
+	            "{", "}", "/", ">", "+",
+	            //"-", /* Nešto oaj minus i ne treba .... otprilike?! */
+	            ":", ";", "=", "*"];
 	
 	for(let i = 0; i < s.length; i++) {
 		
@@ -290,7 +314,7 @@ function PrebrojavanjeRedova() {
 	let desni_num = document.getElementById("desni_gutter");
 	desni_num.innerHTML = "";
 
-	for (i = 1; i <= stanje.br_redova; i++) {
+	for (i = 1; i <= STANJE.br_redova; i++) {
 		desni_num.innerHTML += `<span>${i}</span>`;
 	}
 }
@@ -982,7 +1006,7 @@ function ObradaTokenObicanId(kontekst, stanje, t, tokeni) {
 }
 
 function ObradaTokenObicanHTMLSelektor(kontekst, stanje, t, tokeni) {
-	let p = MAPA_SIMBOLA.get(t);
+	let p = MAPA_SELEKTORA.get(t);
 
 	if(p) {
 		tokeni.push(new Array(p, t));
@@ -995,14 +1019,51 @@ function ObradaTokenObicanHTMLSelektor(kontekst, stanje, t, tokeni) {
 }
 
 function ObradaTokenObicanSvojstvaSelektora(kontekst, stanje, t, tokeni) {
+	
 	if(kontekst[1] == 1) {
-		tokeni.push(new Array("svojstvo_naziv", t));
-		return true;
+
+		if(!PREPOZNAVANJE_SVOJSTAVA_NAZIV) {
+			
+			tokeni.push(new Array("svojstvo_naziv", t));
+			return true;
+		}
+
+		if(MAPA_VREDNOSTI.get(t)) {
+			
+			tokeni.push(new Array("svojstvo_naziv", t));
+			stanje.svojstvo = t;
+			return true;
+		}
+		else {
+			
+			tokeni.push(new Array("neprepoznato_svojstvo_naziv", t));
+			stanje.svojstvo = "";
+			return true;
+		}
+
 	}
 
 	if(kontekst[1] == 2) {
-		tokeni.push(new Array("svojstvo_vrednost", t));
-		return true;
+
+		if(!PREPOZNAVANJE_SVOJSTAVA_VREDNOST) {
+			
+			tokeni.push(new Array("svojstvo_vrednost", t));
+			return true;
+		}
+		
+		let p = stanje.svojstvo != "" && MAPA_VREDNOSTI.get(stanje.svojstvo);
+
+		if(p && p[1].includes(t)) {
+			
+			tokeni.push(new Array("svojstvo_vrednost", t));
+			return true;
+		}
+		else {
+			
+			tokeni.push(new Array("svojstvo_neprepoznata_vrednost", t));
+			return true;
+		}
+		//*/
 	}
 
 	return false;
@@ -1023,7 +1084,7 @@ function ObradaTokenObicanEtDirektiva(kontekst, stanje, t, tokeni) {
 		return true;
 	}
 
-	if(t == "font") {
+	if(t == "font-face") {
 		tokeni.push(new Array("et_direktiva", t));
 		stanje.stek_parser.pop();
 		stanje.stek_parser.push([2, 3, 0]);
