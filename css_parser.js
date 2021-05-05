@@ -203,6 +203,8 @@ function Obrada() {
 	//t_desni.innerHTML = PripremaHTMLa2(tokeni);
 	PrebrojavanjeRedova();
 
+	console.log(STANJE.stek_parser);
+
 
 	/* ----- telemetrija ------ */
 	let t2    = performance.now();
@@ -281,7 +283,7 @@ function Tokenizacija(stanje, s) {
 	let tokeni = [];
 	let i;
 
-	STANJE.stek_lekser.push(0);
+	STANJE.stek_lekser.push([0, 0]);
 	
 	for(i = 0; i < s.length; i++) {
 		
@@ -337,29 +339,33 @@ function TokenizacijaKomentarkosaCrta(znak, stanje, tokeni) {
 
 	let kontekst = stanje.stek_lekser[stanje.stek_lekser.length - 1];
 
-	if(kontekst == 0 || kontekst == 5 || kontekst == 6) {
+	if(kontekst[0] == 0) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		TokenizacijaPraznjenjeNiska(stanje, tokeni);
-		stanje.stek_lekser.push(1);
+		stanje.stek_lekser.push([1, 0]);
 
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		stanje.stek_lekser.pop();
-		//stanje.stek_lekser.push(2);
+		
+		if(kontekst[1] == 0) { // 5-ica je unutar niske
+			stanje.stek_lekser.push([2, 0]);
+		}
+		
 		tokeni.push("//");
 
 		return;
 	}
 
-	if(kontekst == 2 || kontekst == 3) {
+	if(kontekst[0] == 2 || kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		tokeni.push(stanje.komentar);
 		stanje.komentar = "";
 		tokeni.push("*/");
@@ -369,9 +375,10 @@ function TokenizacijaKomentarkosaCrta(znak, stanje, tokeni) {
 		return;
 	}
 
-	if(kontekst == 5 || kontekst == 6) {
+	if(kontekst[0] == 5 || kontekst[0] == 6) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
-		stanje.niska += znak;
+		TokenizacijaPraznjenjeNiska(stanje, tokeni);
+		stanje.stek_lekser.push([1, 5]);
 
 		return;
 	}
@@ -381,7 +388,7 @@ function TokenizacijaKomentarZvezdica(znak, stanje, tokeni) {
 
 	let kontekst = stanje.stek_lekser[stanje.stek_lekser.length - 1];
 
-	if(kontekst == 0) {
+	if(kontekst[0] == 0) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		TokenizacijaPraznjenjeNiska(stanje, tokeni);
 		tokeni.push("*");
@@ -389,33 +396,33 @@ function TokenizacijaKomentarZvezdica(znak, stanje, tokeni) {
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		stanje.stek_lekser.pop();
-		stanje.stek_lekser.push(3);
+		stanje.stek_lekser.push([3, 0]);
 		tokeni.push("/*");
 
 		return;
 	}
 
-	if(kontekst == 2) {
+	if(kontekst[0] == 2) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 		
 		return;
 	}
 
-	if(kontekst == 3) {
-		stanje.stek_lekser.push(4);
+	if(kontekst[0] == 3) {
+		stanje.stek_lekser.push([4, 0]);
 
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		stanje.komentar += znak;
 
 		return;
 	}
 
-	if(kontekst == 5 || kontekst == 6) {
+	if(kontekst[0] == 5 || kontekst[0] == 6) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		stanje.niska += znak;
 
@@ -427,33 +434,33 @@ function TokenizacijaZnakApostrof(znak, stanje, tokeni) {
 
 	let kontekst = stanje.stek_lekser[stanje.stek_lekser.length - 1];
 
-	if(kontekst == 0) {
+	if(kontekst[0] == 0) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		tokeni.push(znak);
-		stanje.stek_lekser.push(5);
+		stanje.stek_lekser.push([5, 0]);
 		
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		TokenizacijaOtkazivanjePocetkaKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 2 || kontekst == 3) {
+	if(kontekst[0] == 2 || kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		TokenizacijaOtkazivanjeKrajaBlokKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 5) {
+	if(kontekst[0] == 5) {
 		TokenizacijaPraznjenjeNiska(stanje, tokeni);
 		tokeni.push(znak);
 		stanje.stek_lekser.pop();
@@ -461,7 +468,7 @@ function TokenizacijaZnakApostrof(znak, stanje, tokeni) {
 		return;
 	}
 
-	if(kontekst == 6) {
+	if(kontekst[0] == 6) {
 		stanje.niska += znak;
 		
 		return;
@@ -474,39 +481,39 @@ function TokenizacijaZnakNavodnik(znak, stanje, tokeni) {
 
 	let kontekst = stanje.stek_lekser[stanje.stek_lekser.length - 1];
 
-	if(kontekst == 0) {
+	if(kontekst[0] == 0) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		tokeni.push(znak);
-		stanje.stek_lekser.push(6);
+		stanje.stek_lekser.push([6, 0]);
 		
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		TokenizacijaOtkazivanjePocetkaKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 2 || kontekst == 3) {
+	if(kontekst[0] == 2 || kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		TokenizacijaOtkazivanjeKrajaBlokKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 5) {
+	if(kontekst[0] == 5) {
 		stanje.niska += znak;
 		
 		return;
 	}
 
-	if(kontekst == 6) {
+	if(kontekst[0] == 6) {
 		TokenizacijaPraznjenjeNiska(stanje, tokeni);
 		tokeni.push(znak);
 		stanje.stek_lekser.pop();
@@ -523,7 +530,7 @@ function TokenizacijaZnakWhitespace(znak, stanje, tokeni) {
 
 	if(znak == '\n') stanje.br_redova++;
 
-	if(kontekst == 0 || kontekst == 5 || kontekst == 6) {
+	if(kontekst[0] == 0 || kontekst[0] == 5 || kontekst[0] == 6) {
 		TokenizacijaPraznjenjeNiska(stanje, tokeni);
 		TokenizacijaPraznjenjeKomentar(stanje, tokeni);
 		stanje.whitespace += znak;
@@ -531,13 +538,13 @@ function TokenizacijaZnakWhitespace(znak, stanje, tokeni) {
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		TokenizacijaOtkazivanjePocetkaKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 2 && znak == '\n' ) {
+	if(kontekst[0] == 2 && znak == '\n' ) {
 		stanje.stek_lekser.pop();
 		TokenizacijaPraznjenjeKomentar(stanje, tokeni);
 		tokeni.push(znak);
@@ -545,20 +552,20 @@ function TokenizacijaZnakWhitespace(znak, stanje, tokeni) {
 		return;
 	}
 
-	if(kontekst == 2 || kontekst == 3) {
+	if(kontekst[0] == 2 || kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 
 		return;
 
 	}
 
-	if(kontekst == 3) {
+	if(kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 		
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		TokenizacijaOtkazivanjeKrajaBlokKomentara(znak, stanje, tokeni);
 		
 		return;
@@ -569,7 +576,7 @@ function TokenizacijaZnakSpecijalni(znak, stanje, tokeni) {
 
 	let kontekst = stanje.stek_lekser[stanje.stek_lekser.length - 1];
 
-	if(kontekst == 0) {
+	if(kontekst[0] == 0) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		TokenizacijaPraznjenjeNiska(stanje, tokeni);
 		tokeni.push(znak);
@@ -577,25 +584,25 @@ function TokenizacijaZnakSpecijalni(znak, stanje, tokeni) {
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		TokenizacijaOtkazivanjePocetkaKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 2 || kontekst == 3) {
+	if(kontekst[0] == 2 || kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		TokenizacijaOtkazivanjeKrajaBlokKomentara(znak, stanje, tokeni);
 		
 		return;
 	}
 
-	if(kontekst == 5 || kontekst == 6) {
+	if(kontekst[0] == 5 || kontekst[0] == 6) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		stanje.niska += znak;
 
@@ -608,26 +615,26 @@ function TokenizacijaZnakObican(znak, stanje, tokeni) {
 
 	let kontekst = stanje.stek_lekser[stanje.stek_lekser.length - 1];
 
-	if(kontekst == 0 || kontekst == 5 || kontekst ==6) {
+	if(kontekst[0] == 0 || kontekst[0] == 5 || kontekst[0] ==6) {
 		TokenizacijaPraznjenjeWhitespace(stanje, tokeni);
 		stanje.niska += znak;
 
 		return;
 	}
 
-	if(kontekst == 1) {
+	if(kontekst[0] == 1) {
 		TokenizacijaOtkazivanjePocetkaKomentara(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 2 || kontekst == 3) {
+	if(kontekst[0] == 2 || kontekst[0] == 3) {
 		TokenizacijaUpisUKomentar(znak, stanje, tokeni);
 
 		return;
 	}
 
-	if(kontekst == 4) {
+	if(kontekst[0] == 4) {
 		TokenizacijaOtkazivanjeKrajaBlokKomentara(znak, stanje, tokeni);
 		
 		return;
