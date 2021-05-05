@@ -191,8 +191,10 @@ function Obrada() {
 	STANJE.stek_parser.push([0, 0, 0]);
 	t_desni.innerHTML = "";
 	let tokeni        = Tokenizacija(STANJE, t_levi.value + "\n");
-	tokeni            = Parser(STANJE, tokeni)
+	//let tokeni        = TokenizacijaRegex(t_levi.value + "\n");
+	tokeni            = Parser(STANJE, tokeni);
 	t_desni.innerHTML = PripremaHTMLa(tokeni);
+	//t_desni.innerHTML = PripremaHTMLa2(tokeni);
 	PrebrojavanjeRedova();
 
 
@@ -233,6 +235,25 @@ function IspisKlase(klasa) {
 /* -------------------------------------------------------------------------- */
 // TOKENIZACIJA:
 /* -------------------------------------------------------------------------- */
+
+// Sve to moŽe u par linija koda ....
+
+function TokenizacijaRegex(s) {
+	/* ----- telemetrija ------ */
+	let t1 = performance.now();
+
+	let s1 = s.split(/( |\t|\n|\/\*|\*\/|\/\/|\(|\)|\[|\]|\{|\}|\'|\"|\.|\,|;|:|@|#|\*)/g);
+	
+	/* ----- telemetrija ------ */
+	let t2    = performance.now();
+	let odziv = (t2 - t1) + "ms";
+	
+	document.getElementById("info_aside_odziv_lekser").innerHTML  = odziv;
+
+	return s1;
+}
+
+// .... ali, 'igramo' se .....
 
 function Tokenizacija(stanje, s) {
 	let tokeni = [];
@@ -671,9 +692,22 @@ function ObradaTokenaKomentarBlokZatvaranje(stanje, t, tokeni) {
 	let kontekst = stanje.stek_parser[stanje.stek_parser.length - 1];
 
 	if(kontekst[0] == 1) {
+
+		if(kontekst[1] == 1) {
+
+			tokeni.push(new Array("komentar", t));
+			
+			return;
+		}
 		
-		tokeni.push(new Array("komentar_blok_zatvaranje", t));
-		stanje.stek_parser.pop();
+		if(kontekst[1] == 2) {
+			
+			tokeni.push(new Array("komentar_blok_zatvaranje", t));
+			stanje.stek_parser.pop();
+			
+			return;
+		}
+		
 	
 	}
 	else {
@@ -1285,4 +1319,46 @@ function ObradaTokenObicanEtDirektiva(kontekst, stanje, t, tokeni) {
 }
 function ObradaTokenObicanUnutarZagrada(kontekst, stanje, t, tokeni) {
 	tokeni.push(new Array("vrednost_u_zagradi", t));
+}
+
+/* -------------------------------------------------------------------------- */
+// VISAK (A MOZDA I NIJE .... VIDEĆEMO .....)
+/* -------------------------------------------------------------------------- */
+
+function PripremaHTMLa2(tokeni) {
+	let s  = "";
+	
+	// JS format
+
+	/*
+	let rb = true;
+	let s1 = "[\"";
+	let s2 = "\"]\n";
+	//*/
+
+	// HTML ispis
+
+	/*
+	let rb = false;
+	let s1 = "<span>";
+	let s2 = "</span>";
+	//*/
+
+	// Primitivni ispis
+
+	///*
+	let rb = true;
+	let s1 = "";
+	let s2 = "";
+	//*/
+
+	for(let i = 0; i < tokeni.length; i++) {
+
+		if(tokeni[i] == "") continue;
+		
+		s += ((rb)? (i+1) + ": " : "") + "[\"" + s1 + tokeni[i] + s2 + "\"]\n";
+		s += "------------------------------------------------------------\n";
+	}
+
+	return s;
 }
