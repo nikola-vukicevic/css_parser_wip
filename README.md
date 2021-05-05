@@ -7,9 +7,13 @@ https://www.codeblog.rs/primeri/css_syntax_highlighter/
 
 ## Log
 
-#### v1.0.1 (04.05.2021.)
+#### v1.1.0 (05.05.2021.)
 
-Malko ćemo ipak da se bavimo u parserom, tako da, za sada ....
+Optimizovan parser i dodat lekser koji radi preko regex-a
+
+#### v1.0.1 (03.05.2021.)
+
+Malko ćemo ipak da se bavimo i parserom, tako da (za sada) ....
 
 Parser proverava nazive svojstava, ali trenutno mapa sadrži samo svojstva koja se vide na demo stranici.
 
