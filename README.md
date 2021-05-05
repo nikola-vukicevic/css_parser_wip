@@ -7,6 +7,10 @@ https://www.codeblog.rs/primeri/css_syntax_highlighter/
 
 ## Log
 
+#### v1.1.1 (05.05.2021.)
+
+Dodato prepoznavanje blok komentara unutar stringova.
+
 #### v1.1.0 (05.05.2021.)
 
 Optimizovan parser i dodat lekser koji radi preko regex-a, ali, i dalje 'zvanično' koristim DIY tokenizator (dodatnih 250 linija koda; merak nema cenu :D).
