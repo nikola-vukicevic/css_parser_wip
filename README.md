@@ -9,7 +9,7 @@ https://www.codeblog.rs/primeri/css_syntax_highlighter/
 
 #### v1.1.0 (05.05.2021.)
 
-Optimizovan parser i dodat lekser koji radi preko regex-a
+Optimizovan parser i dodat lekser koji radi preko regex-a, ali, i dalje 'zvanično' koristim DIY tokenizator (dodatnih 250 linija koda; merak nema cenu :D).
 
 #### v1.0.1 (03.05.2021.)
 
