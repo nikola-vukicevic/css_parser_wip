@@ -14,80 +14,6 @@ var SPEC = [
     ":"   ,  ";"  ,  "="
 ];
 
-var MAPA_SELEKTORA = new Map ([
-	
-	/* ------ html selektori ----- */
-
-	["a",           "selektor_html_tag"],
-	["article",     "selektor_html_tag"],
-	["aside",       "selektor_html_tag"],
-	["b",           "selektor_html_tag"],
-	["body",        "selektor_html_tag"],
-	["button",      "selektor_html_tag"],
-	["code",        "selektor_html_tag"],
-	["div",         "selektor_html_tag"],
-	["figure",      "selektor_html_tag"],
-	["figcaption",  "selektor_html_tag"],
-	["footer",      "selektor_html_tag"],
-	["form",        "selektor_html_tag"],
-	["header",      "selektor_html_tag"],
-	["h1",          "selektor_html_tag"],
-	["h2",          "selektor_html_tag"],
-	["h3",          "selektor_html_tag"],
-	["h4",          "selektor_html_tag"],
-	["h5",          "selektor_html_tag"],
-	["h6",          "selektor_html_tag"],
-	["i",           "selektor_html_tag"],
-	["img",         "selektor_html_tag"],
-	["input",       "selektor_html_tag"],
-	["label",       "selektor_html_tag"],
-	["li",          "selektor_html_tag"],
-	["main",        "selektor_html_tag"],
-	["nav",         "selektor_html_tag"],
-	["ol",          "selektor_html_tag"],
-	["p",           "selektor_html_tag"],
-	["q",           "selektor_html_tag"],
-	["pre",         "selektor_html_tag"],
-	["section",     "selektor_html_tag"],
-	["span",        "selektor_html_tag"],
-	["strong",      "selektor_html_tag"],
-	["textarea",    "selektor_html_tag"],
-	["u",           "selektor_html_tag"],
-	["ul",          "selektor_html_tag"],
-
-	/* ----- @ direktive ----- */
-
-	["import",      "et_direktiva"],
-	["media",       "et_direktiva"],
-	["font-face",   "et_direktiva"],
-	
-	/* ----- pseudoklase ----- */
-	
-	["active",      "pseudoklasa"],
-	["after",       "pseudoklasa"],
-	["before",      "pseudoklasa"],
-	["hover",       "pseudoklasa"],
-	["root",        "pseudoklasa"],
-	["visited",     "pseudoklasa"],
-	["first-child", "pseudoklasa"],
-	["last-child",  "pseudoklasa"]
-
-]);
-
-var MAPA_VREDNOSTI = new Map([
-
-	["box-shadow",      ["temp",   []]],
-	["color",           ["temp",   []]],
-	["display",         ["spisak", ["block", "inline-block", "block", "flex"]]],
-	["font-family",     ["temp",   []]],
-	["margin",          ["temp",   []]],
-	["outline",         ["temp",   []]],
-	["padding",         ["temp",   []]],
-	["src",             ["temp",   []]],
-	["text-decoration", ["temp",   ["none", "underline"]]],
-
-]);
-
 /* -------------------------------------------------------------------------- */
 // stek_parser - stanja:
 /* -------------------------------------------------------------------------- */
@@ -201,7 +127,7 @@ function Obrada() {
 	tokeni            = Parser(STANJE, tokeni);
 	t_desni.innerHTML = PripremaHTMLa(tokeni);
 	//t_desni.innerHTML = PripremaHTMLa2(tokeni);
-	PrebrojavanjeRedova();
+	NumeracijaRedova();
 
 	console.log(STANJE.stek_parser);
 
@@ -227,20 +153,35 @@ function PripremaHTMLa(tokeni) {
 	return s;
 }
 
-function PrebrojavanjeRedova() {
-
-	if(!NUMERACIJA_REDOVA) {
-
-		return;
-	}
+function NumeracijaRedova() {
 	
+	document.getElementById("info_aside_odziv_numeracija").innerHTML  = "---";
 	//stanje.br_redova++;
 	let desni_num = document.getElementById("desni_gutter");
 	desni_num.innerHTML = "";
 
-	for (i = 1; i <= STANJE.br_redova; i++) {
-		desni_num.innerHTML += `<span>${i}</span>`;
+	if(!NUMERACIJA_REDOVA) {
+		
+
+		return;
 	}
+
+	/* ----- telemetrija ------ */
+	let t1 = performance.now();
+
+	
+	let s = ""
+
+	for (i = 1; i <= STANJE.br_redova; i++) {
+		s += `<span>${i}</span>`;
+	}
+
+	desni_num.innerHTML = s;
+
+	/* ----- telemetrija ------ */
+	let t2    = performance.now();
+	let odziv = (t2 - t1) + "ms";
+	document.getElementById("info_aside_odziv_numeracija").innerHTML  = odziv;
 }
 
 function IspisKlase(klasa) {
