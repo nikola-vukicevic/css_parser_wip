@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset='utf-8'/>
+		<title>CSS Syntax Highlighter (WIP)</title>
+		<link rel='stylesheet' href='stil.css'/>
+	</head>
+	
+	<body onload='Obrada()'>
+		<main id='wrapper'>
+			<textarea id='levi' oninput='Obrada()' spellcheck='false'>
+/* ---- CSS SYNTAX HIGHLIGHTER ---- */
+
+@import 'config.css';
+
+/*
+	Unesite Vaš CSS kod u levo tekstualno polje
+	(koje je interaktivno), a u desnom će biti
+	prikazan rezultat tokenizacije) ....
+*/
+
+* {
+	margin: 0;
+	padding: 0;
+}
+
+@font-face {
+	font-family: 'OpenSans-Regular', Arial, sans-serif;
+	src:         url('../fontovi/OpenSans-Regular.ttf') format('truetype');
+}
+
+#id_1 {
+	display:    flex; // #ddf? --- */ Hex
+	color:      #eda;
+	box-shadow: 0px 0px 16px 1px rgba(0, 0, 0, 0.03);
+}
+
+.klasa_1,
+.klasa_2 {
+	text-decoration: none;
+}
+
+a:hover {
+   text-decoration: underline;
+}
+
+h1, span, aside, h2.klasa1,
+form#forma_prijava > input[type='password'] {
+	outline: 0;
+}
+
+@media only screen and (min-width: 768px) {
+     #wrapper {
+	     padding:  1em 16px 1.25em 24px;
+     }
+}
+
+GRESKA! Ne sme se bežati sa časova!
+</textarea>
+			<div id='desni'>
+				<pre id='desni_gutter'>
+				</pre>
+
+				<pre id='desni_ispis'>
+				</pre>
+			</div>
+		</main>
+
+		<aside id='info_aside'>
+			<span>Info:</span>
+			
+			<div>
+				<span>tokeni (#):</span>
+				<span class='info_aside_ispis' id='info_aside_tokeni'>---</span>
+			</div>
+			
+			<div>
+				<span>odziv:</span>
+				<span class='info_aside_ispis' id='info_aside_odziv'>---</span>
+			</div>
+
+			<div>
+				<span>lekser:</span>
+				<span class='info_aside_ispis' id='info_aside_odziv_lekser'>---</span>
+			</div>
+
+			<div>
+				<span>parser:</span>
+				<span class='info_aside_ispis' id='info_aside_odziv_parser'>---</span>
+			</div>
+
+			<div>
+				<span>numeracija:</span>
+				<span class='info_aside_ispis' id='info_aside_odziv_numeracija'>---</span>
+			</div>
+
+			<div>
+				<span>klasa:</span>
+				<span class='info_aside_ispis' id='info_aside_klasa'>---</span>
+			</div>
+		</aside>
+
+		<script src='mapa_selektora.js'></script>
+		<script src='mapa_vrednosti.js'></script>
+		<script src='css_parser.js'></script>
+	</body>
+</html>
